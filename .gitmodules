@@ -1,0 +1,3 @@
+[submodule "yield-ui"]
+	path = yield-ui
+	url = https://github.com/chimera-defi/cnc
