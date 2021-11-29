@@ -791,14 +791,6 @@ contract StratYieldRedirectAAVE is BaseStrategy {
         );
 
     // // For Swapping
-    // IQuickSwapRouter public ROUTER =
-    //     IQuickSwapRouter(0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff);
-    // IQuickSwapRouter public constant QS_ROUTER =
-    //     IQuickSwapRouter(0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff);
-
-    // // sushi swap 0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506
-    // IQuickSwapRouter public constant SUSHI_ROUTER =
-    //     IQuickSwapRouter(0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506);
         IQuickSwapRouter public ROUTER = IQuickSwapRouter(0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506);
 
 
@@ -835,7 +827,7 @@ contract StratYieldRedirectAAVE is BaseStrategy {
     // Todo masterChefRewarder - sell tokens, and deliver to a potpool snx style rewarder
 
     // remember to call setMasterChefRewarder as otherwise extra rewards get burnt
-    // and set limit
+    // and set limit on vault
     // and set target apr
 
     function setTargetAPR(uint256 newtarget) external onlyKeepers {
@@ -845,20 +837,6 @@ contract StratYieldRedirectAAVE is BaseStrategy {
     function setMasterChefRewarder(address newMCR) external onlyKeepers {
         masterChefRewarder = newMCR;
     }
-
-    // function setRouterToSushi(address router) external onlyKeepers {
-    //     ROUTER = SUSHI_ROUTER;
-    //     WMATIC_TOKEN.safeApprove(address(ROUTER), type(uint256).max);
-    //     // yield redirect
-    //     want.safeApprove(address(ROUTER), type(uint256).max);
-    // }
-
-    // function setRouterToQS(address router) external onlyKeepers {
-    //     ROUTER = QS_ROUTER;
-    //     WMATIC_TOKEN.safeApprove(address(ROUTER), type(uint256).max);
-    //     // yield redirect
-    //     want.safeApprove(address(ROUTER), type(uint256).max);
-    // }
 
     function _getRealAPR(uint256 _profit) public view returns (uint256) {
         uint256 diffTime = block.number.sub(lastSnapshotBlock);
@@ -908,27 +886,6 @@ contract StratYieldRedirectAAVE is BaseStrategy {
             want.safeTransfer(masterChefRewarder, _diffToSell);
         }
     }
-
-    // function getValueOverTarget() {
-    //   // deposit must occure before
-    //   uint256 rewardsTotal = valueOfRewards();
-    //   uint256 lbs = lastBalSnapshot;
-    //   lastBalSnapshot = uint256(_nav()).sub(realDebt);
-    //   uint256 lsb = lastSnapshotBlock;
-    //   lastSnapshotBlock = block.number;
-    //   uint256 diffProfit = lastBalSnapshot.sub(lbs);
-    //   uint256 diffTime = lastSnapshotBlock.sub(lsb);
-    //   uint256 percentProfit = diffProfit.div(realDebt);
-
-    //   uint256 realApr = percentProfit.mul(blocksPerYear).div(diffTime);
-
-    //   uint256 diffToSell;
-    //   if (realApr > targetAPR) {
-    //     uint256 targetProfit = targetAPR.mul(diffTime).div(blocksPerYear).mul(realDebt);
-    //     diffToSell = diffProfit.sub(targetProfit);
-    //   }
-    //   return diffToSell;
-    // }
 
     constructor(address _vault) public BaseStrategy(_vault) {
         // You can set these parameters on deployment to whatever you want
