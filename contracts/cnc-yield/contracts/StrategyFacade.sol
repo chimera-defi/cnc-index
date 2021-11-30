@@ -2,18 +2,27 @@
 pragma solidity ^0.6.0;
 
 import "@openzeppelin/contracts/utils/EnumerableSet.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
 
 import "./interfaces/IStrategyFacade.sol";
-import {StrategyAPI} from "./BaseStrategy.sol";
+
+/**
+ * This interface is here for the keeper bot to use.
+ */
+interface StrategyAPI {
+    function harvestTrigger(uint256 callCost) external view returns (bool);
+
+    function harvest() external;
+}
 
 /// @title Facade contract for Gelato Resolver contract
-/// @author Tesseract Finance
-contract StrategyFacade is IStrategyFacade, Ownable {
+/// @author Tesseract Finance, Chimera
+contract StrategyFacade is IStrategyFacade {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     EnumerableSet.AddressSet internal availableStrategies;
+    uint256 public totalStrats;
     address public resolver;
+    address public owner;
     uint256 public interval;
     uint256 public lastBlock;
 
@@ -26,10 +35,23 @@ contract StrategyFacade is IStrategyFacade, Ownable {
         _;
     }
 
+    modifier onlyOwner {
+        require(msg.sender == owner, "StrategyFacade: Only owner can call");
+        _;
+    }
+
+    constructor() public {
+        owner = msg.sender;
+    }
+
     function setResolver(address _resolver) public onlyOwner {
         resolver = _resolver;
 
         emit ResolverContractUpdated(_resolver);
+    }
+
+    function setOwner(address _owner) public onlyOwner {
+        owner = _owner;
     }
 
     function setInterval(uint256 _interval) public onlyOwner {
@@ -41,8 +63,13 @@ contract StrategyFacade is IStrategyFacade, Ownable {
 
         availableStrategies.add(_strategy);
         lastBlock = block.timestamp;
+        totalStrats++;
 
         emit StrategyAdded(_strategy);
+    }
+
+    function getStrategy(uint256 i) public view returns (address strat) {
+        strat = availableStrategies.at(i);
     }
 
     function removeStrategy(address _strategy) public onlyOwner {
@@ -53,8 +80,12 @@ contract StrategyFacade is IStrategyFacade, Ownable {
         emit StrategyRemoved(_strategy);
     }
 
-    function gelatoCanHarvestAny(uint256 _callCost) public view {
-        require(lastBlock+interval < block.timestamp);
+    function gelatoCanHarvestAny(uint256 _callCost) public view override returns (bool canExec) {
+        if (lastBlock+interval > block.timestamp) {
+            canExec = false;
+            return canExec;  // enforce minimal interval
+        }
+
         uint callable = 0;
         for (uint256 i; i < availableStrategies.length(); i++) {
             address currentStrategy = availableStrategies.at(i);
@@ -62,17 +93,13 @@ contract StrategyFacade is IStrategyFacade, Ownable {
                 callable++;
             }
         }
-        require(callable > 0);
-    }
 
-    function harvestAll(uint256 _callCost) public onlyResolver {
-        for (uint256 i; i < availableStrategies.length(); i++) {
-            address currentStrategy = availableStrategies.at(i);
-            if (StrategyAPI(currentStrategy).harvestTrigger(_callCost)) {
-                harvest(currentStrategy);
-            }
+        if (callable > 0) {
+            canExec = true;
+        } else {
+            canExec = false;
         }
-        lastBlock = block.timestamp;
+        return canExec;
     }
 
     function checkHarvest(uint256 _callCost) public view override returns (bool canExec, address strategy) {
@@ -88,5 +115,28 @@ contract StrategyFacade is IStrategyFacade, Ownable {
 
     function harvest(address _strategy) public override onlyResolver {
         StrategyAPI(_strategy).harvest();
+    }
+
+    function harvestAll(uint256 _callCost) public override onlyResolver {
+        for (uint256 i; i < availableStrategies.length(); i++) {
+            address currentStrategy = availableStrategies.at(i);
+            if (StrategyAPI(currentStrategy).harvestTrigger(_callCost)) {
+                harvest(currentStrategy);
+            }
+        }
+        lastBlock = block.timestamp;
+    }
+
+    function checkAll(uint256 _callCost) external view returns (bool canExec, bytes memory execPayload) {
+        canExec = gelatoCanHarvestAny(_callCost);
+        execPayload = abi.encodeWithSelector(IStrategyFacade.harvestAll.selector, _callCost);
+    }
+
+    function check(uint256 _callCost) external view returns (bool canExec, bytes memory execPayload) {
+        (bool _canExec, address _strategy) = checkHarvest(_callCost);
+
+        canExec = _canExec;
+
+        execPayload = abi.encodeWithSelector(IStrategyFacade.harvest.selector, address(_strategy));
     }
 }
