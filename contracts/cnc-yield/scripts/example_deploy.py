@@ -8,11 +8,6 @@ gas_strategy = LinearScalingStrategy("40 gwei", "150 gwei", 1.1, time_duration=1
 
 opts = {'from': acct, 'gas_price': gas_strategy}
 
-Registry.deploy({'from': acct, 'gas_price': gas_strategy})
-
-"0x1f9840a85d5af5bf1d1762f925bdaddc4201f984", "0x4f2bd410b81ea24f83d1e807511baec204c4cf7a", "0x4f2bd410b81ea24f83d1e807511baec204c4cf7a","uniVaultTest","vut", 
-
-Vault.deploy(opts)
 
 usdc = '0x2791bca1f2de4661ed88a30c99a7a9449aa84174'
 dai = '0x8f3cf7ad23cd3cadbd9735aff958023239c6a063'
@@ -56,6 +51,21 @@ performanceFee = 1000
 
 res_vaults = {}
 res_strats = {}
+
+def deployVault(name):
+  vault_name = '%s-vault' % name
+  vaultsym = 'ac%s' % name
+  txn_receipt = registry.newExperimentalVault(intokens[name], governance, gaurdian, rewards, vault_name, vaultsym, opts)
+  vault = Vault.at(txn_receipt.events["NewExperimentalVault"]["vault"])
+
+  res_vaults[name] = vault
+  return vault
+
+strat = StratYieldRedirectAAVE.deploy(vault.address, opts)
+strat.setMasterChefRewarder(acct.address)
+
+
+
 
 def deployLevAAVE(name):
   vault_name = '%s-vault' % name
@@ -199,3 +209,63 @@ harvest manual
 
 
 resolver = 0x003102998A8Dcf0B2D184da8AD2f7C46C4aDB502
+
+
+resolver and facade = 
+0x6839d678A60B09Ffd5ccC6002a4A8d77c720df7E
+
+
+strats = ['0x053a3CebE6C234ADC12AA9666a1cf7e58bcCf0Dc', '0x433614acD3a5B2f1c8A0Da5aA1Fd7eaf9cB2Ed2e', '0x795CC0cB5620614298306118478d07183d1ca8b8']
+sf = StrategyFacade.deploy(opts, publish_source=True)
+sf.setInterval(900)
+for s in strats:
+  sf.addStrategy(s)
+  strat = StrategyLeveragedAAVE.at(s)
+  strat.setKeeper(sf.address, opts)
+sf.setResolver('0x527a819db1eb0e34426297b03bae11F2f8B3A19E')
+
+
+
+
+  Storage deployed at: 0xC745545FD32167c006c994109273D0e89Dd3E0DB
+  PotPool deployed at: 0x513DAfF5db6aCeE73Fe87387A4B737190F5c366c
+
+  PotPool.deploy(
+    ['0x4e78011ce80ee02d2c3e649fb657e45898257815'], # klima rewards
+    '0xb65f32408ebe463248396933ccce846c06c7a9fc', # acusd
+    [acct.address], # rewards
+    '0xC745545FD32167c006c994109273D0e89Dd3E0DB',
+    'yieldRedirectTestPotPool',
+    'yrtpp',
+    6,
+    opts,
+    publish_source=True
+  )
+
+
+
+# cache - working deploy
+
+vault = '0xb65f32408ebe463248396933ccce846c06c7a9fc'
+
+klima = '0x4e78011Ce80ee02d2c3e649Fb657E45898257815'
+strat = '0xa06bBe2a3F5b748D2DA7363E93cB010de67890C3'
+polygon_sushi_router = '0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506'
+
+mr = '0xA1409F29361b600561582C7B337aA22E47f1c88E'
+
+yd = YieldRedirector.deploy(klima, strat,polygon_sushi_router, mr, opts, publish_source=True)
+strat = StratYieldRedirectAAVE.at(strat)
+strat.setMasterChefRewarder(yd.address, opts)
+strat.setKeeper(yd.address, opts)
+
+mr = MultiRewards.deploy(acct.address, vault, opts)
+oneHour = 3600
+ydaddress='0x7FA4b39eb6e79152c76888ed4a97Fa716fD58A60'
+mr.addReward(klima, ydaddress, oneHour)
+
+yd.setRewarder(mr.address)
+
+
+
+
