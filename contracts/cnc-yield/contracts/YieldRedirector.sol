@@ -1,4 +1,10 @@
-// SPDX-License-Identifier: GNU Affero
+// SPDX-License-Identifier: Unlicensed
+
+
+// Copyright (c) 2021 ChimeraDefi - All rights reserved
+// Twitter: @ChimeraDefi
+
+// Contract to redirect yield 
 pragma solidity ^0.6.0;
 
 import {SafeERC20, SafeMath, IERC20, Address} from "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
@@ -88,7 +94,7 @@ contract YieldRedirector is Ownable {
     }
 
     // Swap from Want to target
-    ///@param amountToSwap Amount of AAVE to Swap, NOTE: You have to calculate the amount!!
+    ///@param amountToSwap Amount of want to Swap, NOTE: You have to calculate the amount!!
     ///@param multiplierInWei pricePerToken including slippage, will be divided by 10 ** 18
     function manualSwap(uint256 amountToSwap, uint256 multiplierInWei)
         public
