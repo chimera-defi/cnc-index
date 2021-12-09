@@ -765,10 +765,11 @@ interface IAaveIncentivesControllerExtended is IAaveIncentivesController {
 import {SafeERC20, SafeMath, IERC20, Address} from "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {BaseStrategyInitializable, BaseStrategy} from "./BaseStrategy.sol";
+import {YieldRedirectStrategy} from "./YieldRedirectStrategy.sol";
 import {DataTypes} from "./libraries/aave/DataTypes.sol";
 
 // File: contracts/StratYieldRedirectAAVE.sol
-contract StratYieldRedirectAAVE is BaseStrategy {
+contract StratYieldRedirectAAVE is YieldRedirectStrategy {
     using SafeERC20 for IERC20;
     using Address for address;
     using SafeMath for uint256;
@@ -791,8 +792,8 @@ contract StratYieldRedirectAAVE is BaseStrategy {
         );
 
     // // For Swapping
-        IQuickSwapRouter public ROUTER = IQuickSwapRouter(0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506);
-
+    IQuickSwapRouter public ROUTER =
+        IQuickSwapRouter(0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506);
 
     IERC20 public constant WMATIC_TOKEN =
         IERC20(0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270);
@@ -812,82 +813,7 @@ contract StratYieldRedirectAAVE is BaseStrategy {
 
     uint256 public minRebalanceAmount = 0; // should be changed based on decimals of the want token
 
-    // New for yield redirector
-    uint256 private constant blocksPerYear = 2_300_000;
-    uint256 public lastBalSnapshot;
-    uint256 public lastSnapshotBlock;
-    uint256 public targetAPR;
-    uint256 public realDebt; // real deposits into this lender
-    address public masterChefRewarder;
-
-    // when we harvest we prepareReturn then adjustPosition
-    // after prepareReturn, we want to redirect extra profit
-    // in prepare return we get the value over target apr using _getValueOverTarget
-    // then we redirect the yield to the masterChefRewarder address
-    // Todo masterChefRewarder - sell tokens, and deliver to a potpool snx style rewarder
-
-    // remember to call setMasterChefRewarder as otherwise extra rewards get burnt
-    // and set limit on vault
-    // and set target apr
-
-    function setTargetAPR(uint256 newtarget) external onlyKeepers {
-        targetAPR = newtarget;
-    }
-
-    function setMasterChefRewarder(address newMCR) external onlyKeepers {
-        masterChefRewarder = newMCR;
-    }
-
-    function _getRealAPR(uint256 _profit) public view returns (uint256) {
-        uint256 diffTime = block.number.sub(lastSnapshotBlock);
-        uint256 initialDeposit = vault.strategies(address(this)).totalDebt;
-        if (initialDeposit == 0 || lastSnapshotBlock == 0) return 0;
-        uint256 realApr = _profit.mul(blocksPerYear).div(diffTime).mul(1e18).div(
-            initialDeposit
-        );
-        return realApr;
-    }
-
-    function getTargetAndDiff(uint256 _profit)
-        public
-        view
-        returns (uint256 _diffToSell, uint256 _targetProfit)
-    {
-        uint256 diffTime = block.number.sub(lastSnapshotBlock);
-        uint256 initialDeposit = vault.strategies(address(this)).totalDebt;
-
-        _targetProfit = targetAPR.mul(diffTime).div(blocksPerYear).mul(
-            initialDeposit
-        );
-        _diffToSell = _profit.mul(1e18).sub(_targetProfit).div(1e18);
-    }
-
-    function _getValueOverTarget(uint256 _profit, uint256 _loss)
-        public
-        view
-        returns (uint256 _diffToSell, uint256 _targetProfit)
-    {
-        _targetProfit = _profit;
-        if (_loss > 0 || _loss > _profit) {
-            return (0, _profit);
-        }
-
-        // ((profit / principal) / blocks elapsed since last calc) * blocks in yr
-        uint256 realApr = _getRealAPR(_profit);
-
-        if (realApr > targetAPR) {
-            (_diffToSell, _targetProfit) = getTargetAndDiff(_profit);
-        }
-    }
-
-    function _redirectExcessYield(uint256 _diffToSell) internal {
-        // Todo send to splitter? masterchef
-        if (_diffToSell > 0) {
-            want.safeTransfer(masterChefRewarder, _diffToSell);
-        }
-    }
-
-    constructor(address _vault) public BaseStrategy(_vault) {
+    constructor(address _vault) public YieldRedirectStrategy(_vault) {
         // You can set these parameters on deployment to whatever you want
         maxReportDelay = 6300;
         profitFactor = 100;
@@ -919,7 +845,6 @@ contract StratYieldRedirectAAVE is BaseStrategy {
         WMATIC_TOKEN.safeApprove(address(ROUTER), type(uint256).max);
 
         want.safeApprove(address(ROUTER), type(uint256).max);
-        lastSnapshotBlock = block.number;
     }
 
     function setMinHealth(uint256 newMinHealth) external onlyKeepers {
@@ -1022,14 +947,9 @@ contract StratYieldRedirectAAVE is BaseStrategy {
             (uint256 earned, uint256 lost) = _repayAAVEBorrow(beforeBalance);
 
             // new yield redirect
-            (uint256 toSell, uint256 earned2) = _getValueOverTarget(
-                earned,
-                lost
-            );
-            lastSnapshotBlock = block.number;
-            _redirectExcessYield(toSell);
+            uint256 excessProfit = _handleRedirect(earned, lost);
 
-            _profit = earned2;
+            _profit = excessProfit;
             _loss = lost;
         }
     }
@@ -1403,11 +1323,10 @@ contract StratYieldRedirectAAVE is BaseStrategy {
             /*uint256 totalCollateralETH*/
             /*uint256 totalDebtETH*/
             /*uint256 availableBorrowsETH*/
-            uint256 currentLiquidationThreshold,
+            uint256 currentLiquidationThreshold, /*uint256 ltv*/
             ,
 
-        ) = /*uint256 ltv*/
-            /*uint256 healthFactor*/
+        ) = /*uint256 healthFactor*/
             LENDING_POOL.getUserAccountData(address(this));
 
         uint256 aBalance = deposited();
@@ -1476,4 +1395,3 @@ contract StratYieldRedirectAAVE is BaseStrategy {
         _fromMATICToWant(amountToSwap, amountOutMinimum);
     }
 }
-
