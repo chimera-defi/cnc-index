@@ -4,39 +4,6 @@ pragma solidity >=0.6.0 <0.7.0;
 pragma experimental ABIEncoderV2;
 import {SafeERC20, SafeMath, IERC20, Address} from "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-
-/**
- * This interface is here for the keeper bot to use.
- */
-interface StrategyAPI {
-    function name() external view returns (string memory);
-
-    function vault() external view returns (address);
-
-    function want() external view returns (address);
-
-    function apiVersion() external pure returns (string memory);
-
-    function keeper() external view returns (address);
-
-    function isActive() external view returns (bool);
-
-    function delegatedAssets() external view returns (uint256);
-
-    function estimatedTotalAssets() external view returns (uint256);
-
-    function tendTrigger(uint256 callCost) external view returns (bool);
-
-    function tend() external;
-
-    function harvestTrigger(uint256 callCost) external view returns (bool);
-
-    function harvest() external;
-
-    event Harvested(uint256 profit, uint256 loss, uint256 debtPayment, uint256 debtOutstanding);
-}
-
-// File: contracts/BaseStrategy.sol
 struct StrategyParams {
     uint256 performanceFee;
     uint256 activation;
@@ -47,13 +14,12 @@ struct StrategyParams {
     uint256 totalDebt;
     uint256 totalGain;
     uint256 totalLoss;
-    bool enforceChangeLimit;
-    uint256 profitLimitRatio;
-    uint256 lossLimitRatio;
-    address customCheck;
 }
 
 interface VaultAPI is IERC20 {
+    function managementFee() external view returns (uint256);
+    function performanceFee() external view returns (uint256);
+
     function name() external view returns (string calldata);
 
     function symbol() external view returns (string calldata);
@@ -164,6 +130,47 @@ interface VaultAPI is IERC20 {
 }
 
 /**
+ * This interface is here for the keeper bot to use.
+ */
+interface StrategyAPI {
+    function name() external view returns (string memory);
+
+    function vault() external view returns (address);
+
+    function want() external view returns (address);
+
+    function apiVersion() external pure returns (string memory);
+
+    function keeper() external view returns (address);
+
+    function isActive() external view returns (bool);
+
+    function delegatedAssets() external view returns (uint256);
+
+    function estimatedTotalAssets() external view returns (uint256);
+
+    function tendTrigger(uint256 callCost) external view returns (bool);
+
+    function tend() external;
+
+    function harvestTrigger(uint256 callCost) external view returns (bool);
+
+    function harvest() external;
+
+    event Harvested(uint256 profit, uint256 loss, uint256 debtPayment, uint256 debtOutstanding);
+}
+
+interface HealthCheck {
+    function check(
+        uint256 profit,
+        uint256 loss,
+        uint256 debtPayment,
+        uint256 debtOutstanding,
+        uint256 totalDebt
+    ) external view returns (bool);
+}
+
+/**
  * @title Tesseract Base Strategy
  * @author Tesseract finance
  * @notice
@@ -185,6 +192,10 @@ abstract contract BaseStrategy {
     using SafeERC20 for IERC20;
     string public metadataURI;
 
+    // health checks
+    bool public doHealthCheck;
+    address public healthCheck;
+
     /**
      * @notice
      *  Used to track which version of `StrategyAPI` this Strategy
@@ -193,7 +204,7 @@ abstract contract BaseStrategy {
      * @return A string which holds the current API version of this contract.
      */
     function apiVersion() public pure returns (string memory) {
-        return "0.4.3";
+        return "0.4.3.1";
     }
 
     /**
@@ -353,6 +364,14 @@ abstract contract BaseStrategy {
         vault.approve(rewards, uint256(-1)); // Allow rewards to be pulled
     }
 
+    function setHealthCheck(address _healthCheck) external onlyVaultManagers {
+        healthCheck = _healthCheck;
+    }
+
+    function setDoHealthCheck(bool _doHealthCheck) external onlyVaultManagers {
+        doHealthCheck = _doHealthCheck;
+    }
+
     /**
      * @notice
      *  Used to change `strategist`.
@@ -503,7 +522,7 @@ abstract contract BaseStrategy {
      * @param _amtInWei The amount (in wei/1e-18 MATIC) to convert to `want`
      * @return The amount in `want` of `_amtInMATIC` converted to `want`
      **/
-    function maticToWant(uint256 _amtInWei) public view virtual returns (uint256);
+    function nativeToWant(uint256 _amtInWei) public view virtual returns (uint256);
 
     /**
      * @notice
@@ -671,11 +690,16 @@ abstract contract BaseStrategy {
      *  with the parameters reported to the Vault (see `params`) to determine
      *  if calling `harvest()` is merited.
      *
+     *  It is expected that an external system will check `harvestTrigger()`.
+     *  This could be a script run off a desktop or cloud bot (e.g.
+     *  https://github.com/iearn-finance/yearn-vaults/blob/main/scripts/keep.py),
+     *  or via an integration with the Keep3r network (e.g.
+     *  https://github.com/Macarse/GenericKeep3rV2/blob/master/contracts/keep3r/GenericKeep3rV2.sol).
      * @param callCostInWei The keeper's estimated gas cost to call `harvest()` (in wei).
      * @return `true` if `harvest()` should be called, `false` otherwise.
      */
     function harvestTrigger(uint256 callCostInWei) public view virtual returns (bool) {
-        uint256 callCost = maticToWant(callCostInWei);
+        uint256 callCost = nativeToWant(callCostInWei);
         StrategyParams memory params = vault.strategies(address(this));
 
         // Should not trigger if Strategy is not activated
@@ -748,10 +772,18 @@ abstract contract BaseStrategy {
         // Allow Vault to take up to the "harvested" balance of this contract,
         // which is the amount it has earned since the last time it reported to
         // the Vault.
+        uint256 totalDebt = vault.strategies(address(this)).totalDebt;
         debtOutstanding = vault.report(profit, loss, debtPayment);
 
         // Check if free returns are left, and re-invest them
         adjustPosition(debtOutstanding);
+
+        // call healthCheck contract
+        if (doHealthCheck && healthCheck != address(0)) {
+            require(HealthCheck(healthCheck).check(profit, loss, debtPayment, debtOutstanding, totalDebt), "!healthcheck");
+        } else {
+            doHealthCheck = true;
+        }
 
         emit Harvested(profit, loss, debtPayment, debtOutstanding);
     }

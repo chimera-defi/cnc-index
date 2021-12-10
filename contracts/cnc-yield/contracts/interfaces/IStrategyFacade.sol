@@ -23,4 +23,5 @@ interface IStrategyFacade {
      * No return, reverts on error
      */
     function harvest(address _strategy) external;
+    function harvestAll(uint256 _callCost) external;
 }
