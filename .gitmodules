@@ -1,3 +1,6 @@
 [submodule "yield-ui"]
 	path = yield-ui
 	url = https://github.com/chimera-defi/cnc
+[submodule "contracts/AvaxCoCoVault"]
+	path = contracts/AvaxCoCoVault
+	url = git@github.com:Schlagonia/CoCoVault.git
